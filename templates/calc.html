@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}Калькулятор — ИнвестКалькулятор{% endblock %}
+
+{% block content %}
+<h2>Калькулятор инвестиций</h2>
+<p class="muted">Сложный процент + ежемесячные взносы. Таблица и 2 диаграммы — сразу.</p>
+
+<div class="grid2">
+  <!-- Левый столбец -->
+  <div class="card">
+    <label class="label">Начальная сумма (₽)</label>
+    <input class="input" id="i0" type="number" value="100000" min="0">
+
+    <label class="label">Ежемесячный взнос (₽)</label>
+    <input class="input" id="m0" type="number" value="10000" min="0">
+
+    <label class="label">Годовая доходность (%)</label>
+    <input class="input" id="r0" type="number" value="7" step="0.1">
+
+    <label class="label">Период (лет)</label>
+    <input class="input" id="y0" type="number" value="10" min="1" max="60">
+
+    <div class="row" style="gap:8px;margin-top:12px;justify-content:flex-start;flex-wrap:wrap">
+      <button class="btn" onclick="calc()">Рассчитать</button>
+      {% if user %}
+        <button class="btn secondary" onclick="openModal('saveModal')">Сохранить</button>
+        <button class="btn btn-word" onclick="downloadReport()">Word (.docx)</button>
+        <button class="btn btn-excel" onclick="downloadExcel()">Excel (.xlsx)</button>
+        <button class="btn btn-pdf" onclick="downloadPDF()">PDF</button>
+      {% else %}
+        <button class="btn secondary" onclick="openModal('authModal');switchAuth('login')">Сохранить</button>
+        <button class="btn btn-word" onclick="openModal('authModal');switchAuth('login')">Word (.docx)</button>
+        <button class="btn btn-excel" onclick="openModal('authModal');switchAuth('login')">Excel (.xlsx)</button>
+        <button class="btn btn-pdf" onclick="openModal('authModal');switchAuth('login')">PDF</button>
+      {% endif %}
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="row"><span>Итоговая сумма</span><b id="resFinal">—</b></div>
+      <div class="row"><span>Общие взносы</span><b id="resContrib">—</b></div>
+      <div class="row"><span>Доходность</span><b id="resProfit">—</b></div>
+    </div>
+  </div>
+
+  <!-- Правый столбец -->
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('growth', this)">График роста</button>
+      <button class="tab" onclick="switchTab('dist', this)">Распределение</button>
+    </div>
+    <div id="g_growth"><canvas id="chart" height="220"></canvas></div>
+    <div id="g_dist" style="display:none"><canvas id="dist" height="220"></canvas></div>
+
+    <h4 style="margin-top:12px">Подробная таблица по годам</h4>
+    <div style="max-height:320px;overflow:auto">
+      <table class="table" id="tbl">
+        <thead><tr><th>Год</th><th>Сумма</th><th>Взносы</th><th>Доходность</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if user %}
+  {% include 'partials/save_modal.html' %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<style>
+/* мягкие фирменные цвета для экспорта */
+.btn-word { background-color:#dbeafe; color:#1e3a8a; border:1px solid #93c5fd; }
+.btn-word:hover { background-color:#bfdbfe; }
+.btn-excel { background-color:#dcfce7; color:#166534; border:1px solid #86efac; }
+.btn-excel:hover { background-color:#bbf7d0; }
+.btn-pdf { background-color:#fee2e2; color:#991b1b; border:1px solid #fca5a5; }
+.btn-pdf:hover { background-color:#fecaca; }
+</style>
+
+<script>
+const fmt = n => new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(n||0);
+let chart, dist, lastResult=null, lastSavedId=null;
+
+function openModal(id){ const el=document.getElementById(id); if(el) el.style.display='flex'; }
+function closeModal(id){ const el=document.getElementById(id); if(el) el.style.display='none'; }
+
+function switchTab(t, el){
+  document.getElementById('g_growth').style.display = (t==='growth')?'':'none';
+  document.getElementById('g_dist').style.display = (t==='dist')?'':'none';
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function ensureCharts(){
+  if(!chart){
+    chart = new Chart(document.getElementById('chart'),{
+      type:'line',
+      data:{labels:[],datasets:[{label:'Динамика роста',data:[],fill:false}]},
+      options:{scales:{y:{beginAtZero:true}}}
+    });
+  }
+  if(!dist){
+    dist = new Chart(document.getElementById('dist'),{
+      type:'bar',
+      data:{labels:['Взносы','Доход'],datasets:[{label:'Распределение',data:[0,0]}]},
+      options:{scales:{y:{beginAtZero:true}}}
+    });
+  }
+}
+ensureCharts();
+
+/* отрисовка результата */
+function applyCalcToUI(data){
+  lastResult = data;
+  resFinal.textContent = fmt(data.final_amount);
+  resContrib.textContent = fmt(data.total_contributions);
+  resProfit.textContent = fmt(data.profit);
+
+  const tb = document.querySelector('#tbl tbody'); tb.innerHTML='';
+  data.schedule.forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${r.year}</td><td>${fmt(r.total)}</td><td>${fmt(r.contributions)}</td><td style="color:#16a34a">${fmt(r.profit)}</td>`;
+    tb.appendChild(tr);
+  });
+
+  chart.data.labels = data.schedule.map(x=>''+x.year);
+  chart.data.datasets[0].data = data.schedule.map(x=>x.total);
+  chart.update();
+
+  dist.data.datasets[0].data = [data.total_contributions, data.final_amount - data.total_contributions];
+  dist.update();
+}
+
+/* расчёт по текущим инпутам */
+async function calc(){
+  const payload = {
+    initial_amount:+i0.value||0,
+    monthly_contribution:+m0.value||0,
+    annual_rate:+r0.value||0,
+    years:+y0.value||1
+  };
+  const res = await fetch('/api/calc/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!res.ok){ alert(await res.text()); return; }
+  const data = await res.json();
+  applyCalcToUI(data);
+}
+
+/* загрузка сохранённого расчёта, если пришли из профиля */
+async function loadFromSavedIfNeeded(){
+  const id = sessionStorage.getItem('openCalc');
+  if(!id){
+    await calc();
+    return;
+  }
+  try{
+    const r = await fetch('/api/calc/list');
+    if(!r.ok){ throw new Error(await r.text()); }
+    const list = await r.json();
+    const found = list.find(x => String(x.id) === String(id));
+    if(!found){
+      await calc();
+      return;
+    }
+    i0.value = found.initial_amount ?? 0;
+    m0.value = found.monthly_contribution ?? 0;
+    r0.value = found.annual_rate ?? 0;
+    y0.value = found.years ?? (found.schedule?.length || 1);
+    lastSavedId = found.id;
+
+    applyCalcToUI(found);
+  } catch(e){
+    console.error(e);
+    await calc();
+  } finally {
+    sessionStorage.removeItem('openCalc');
+  }
+}
+loadFromSavedIfNeeded();
+
+async function saveCalc(){
+  const titleEl = document.getElementById('sv');
+  const title = titleEl ? (titleEl.value.trim() || 'Мой расчёт') : 'Мой расчёт';
+  const payload = {
+    title,
+    initial_amount:+i0.value||0,
+    monthly_contribution:+m0.value||0,
+    annual_rate:+r0.value||0,
+    years:+y0.value||1
+  };
+  const r = await fetch('/api/calc/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!r.ok){ alert(await r.text()); return; }
+  const data = await r.json();
+  lastSavedId = data.id;
+  applyCalcToUI(data);
+  closeModal('saveModal'); alert('Сохранено');
+}
+
+/* выгрузки */
+function downloadReport(){
+  if(!lastSavedId){ alert('Сначала сохраните расчёт'); return; }
+  const a=document.createElement('a');
+  a.href='/api/report/'+lastSavedId;
+  a.download='report_'+lastSavedId+'.docx';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function downloadExcel(){
+  if(!lastSavedId){ alert('Сначала сохраните расчёт'); return; }
+  const a=document.createElement('a');
+  a.href='/api/report/excel/'+lastSavedId;
+  a.download='report_'+lastSavedId+'.xlsx';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function downloadPDF(){
+  if(!lastSavedId){ alert('Сначала сохраните расчёт'); return; }
+  const a=document.createElement('a');
+  a.href='/api/report/pdf/'+lastSavedId;
+  a.download='report_'+lastSavedId+'.pdf';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+</script>
+{% endblock %}

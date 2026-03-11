@@ -1,0 +1,49 @@
+<div class="modal" id="authModal">
+  <div class="box">
+    <div class="close" onclick="closeModal('authModal')">✕</div>
+    <div class="tabs">
+      <button class="tab active" id="tLogin" onclick="switchAuth('login')">Вход</button>
+      <button class="tab" id="tReg" onclick="switchAuth('reg')">Регистрация</button>
+    </div>
+
+    <div id="loginForm">
+      <label class="label">Email</label><input class="input" id="le" type="email">
+      <label class="label">Пароль</label><input class="input" id="lp" type="password">
+      <button class="btn" style="margin-top:12px" onclick="doLogin()">Войти</button>
+    </div>
+
+    <div id="regForm" style="display:none">
+      <label class="label">Имя</label><input class="input" id="rn">
+      <label class="label">Email</label><input class="input" id="re" type="email">
+      <label class="label">Пароль</label><input class="input" id="rp" type="password" minlength="6" maxlength="64">
+      <button class="btn" style="margin-top:12px" onclick="doRegister()">Зарегистрироваться</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openModal(id){ document.getElementById(id).style.display='flex'; }
+function closeModal(id){ document.getElementById(id).style.display='none'; }
+function switchAuth(m){
+  const log = m==='login';
+  document.getElementById('tLogin').classList.toggle('active', log);
+  document.getElementById('tReg').classList.toggle('active', !log);
+  document.getElementById('loginForm').style.display = log?'':'none';
+  document.getElementById('regForm').style.display   = log?'none':'';
+}
+async function doLogin(){
+  const email = document.getElementById('le').value.trim();
+  const password = document.getElementById('lp').value;
+  const r = await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+  if(!r.ok){ alert(await r.text()); return; }
+  location.reload();
+}
+async function doRegister(){
+  const name = document.getElementById('rn').value.trim();
+  const email = document.getElementById('re').value.trim();
+  const password = document.getElementById('rp').value;
+  const r = await fetch('/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,password})});
+  if(!r.ok){ alert(await r.text()); return; }
+  alert('Аккаунт создан. Войдите.'); switchAuth('login');
+}
+</script>

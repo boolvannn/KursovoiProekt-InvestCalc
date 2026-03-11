@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}Инвестиционный калькулятор{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav class="nav">
+    <div class="container row">
+      <div class="row" style="gap:18px">
+        <a class="brand" href="/">Инвестиционный Калькулятор</a>
+        <a href="/">Главная</a>
+        <a href="/calc">Калькулятор</a>
+        {% if user %}<a href="/profile">Профиль</a>{% endif %}
+      </div>
+      <div class="row" style="gap:8px">
+        {% if user %}
+          <span class="badge">{{ user.name }}</span>
+          <form method="post" action="/auth/logout"><button class="btn secondary">Выйти</button></form>
+        {% else %}
+          <button class="btn ghost" onclick="openModal('authModal');switchAuth('login')">Войти</button>
+          <button class="btn" onclick="openModal('authModal');switchAuth('reg')">Регистрация</button>
+        {% endif %}
+      </div>
+    </div>
+  </nav>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% if not user %}
+    {% include 'partials/auth_modal.html' %}
+  {% endif %}
+  {% block modals %}{% endblock %}
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

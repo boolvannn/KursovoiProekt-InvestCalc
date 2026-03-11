@@ -1,0 +1,35 @@
+# --- Web / API ---
+fastapi>
+uvicorn[standard]>
+
+# --- Templates & uploads ---
+jinja2>
+python-multipart>
+
+# --- Auth ---
+python-jose[cryptography]>
+passlib>
+
+# --- DB ---
+SQLAlchemy>
+psycopg2-binary>
+
+# --- Office exports/imports ---
+python-docx>
+docxtpl>
+docxcompose>
+openpyxl>
+XlsxWriter>
+
+# --- Charts & PDF (server-side) ---
+matplotlib>
+reportlab>
+
+# --- Utils ---
+python-dotenv>
+
+SQLAlchemy~=2.0.0
+fastapi~=0.115.0
+passlib~=1.7.0
+python-jose~=3.3.0
+pydantic~=2.12.4
