@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Профиль — ИнвестКалькулятор{% endblock %}
+{% block content %}
+<h2>Профиль</h2>
+{% if not user %}
+  <div class="card">Войдите, чтобы увидеть сохранённые расчёты.</div>
+{% else %}
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <b>{{ user.name }}</b>
+        <div class="muted" style="font-size:12px">{{ user.email }}</div>
+      </div>
+      <a class="btn" href="/calc">Создать новый расчёт</a>
+    </div>
+  </div>
+
+  <!-- Панель импорта -->
+  <div class="card" style="margin-top:12px">
+    <div class="row" style="gap:8px; flex-wrap:wrap">
+      <button class="btn btn-import-word" onclick="triggerImport('word')">Импорт Word (.docx)</button>
+      <button class="btn btn-import-excel" onclick="triggerImport('excel')">Импорт Excel (.xlsx)</button>
+      <input id="importWord" type="file" accept=".docx" style="display:none">
+      <input id="importExcel" type="file" accept=".xlsx" style="display:none">
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:8px;line-height:1.5">
+      <b>Примечание по импорту:</b> ожидаются файлы, выгруженные из этого приложения.
+      В <i>Word</i> — первая таблица со столбцами <code>Год / Сумма / Взносы / Доходность</code>.
+      В <i>Excel</i> — те же столбцы (по умолчанию заголовок на 7-й строке, как в экспорте).
+      Исходные параметры расчёта (первоначальная сумма, ежемесячный взнос, ставка) из отчёта не восстанавливаются — сохраняются только итоги и таблица по годам.
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h3>Сохранённые расчёты</h3>
+    <div id="saved" class="stack"></div>
+    <div id="empty" class="muted">Пока пусто</div>
+  </div>
+{% endif %}
+
+<!-- Модалка названия импорта -->
+<div id="importModal" class="modal" style="display:none">
+  <div class="modal-box">
+    <h3 style="margin:0 0 8px">Название расчёта</h3>
+    <p class="muted" id="importFileInfo" style="font-size:12px;margin:0 0 8px"></p>
+    <input class="input" id="importTitle" type="text" placeholder="Например: Импорт из отчёта" />
+    <div class="row" style="gap:8px; justify-content:flex-end; margin-top:12px">
+      <button class="btn ghost" onclick="closeImportModal()">Отмена</button>
+      <button class="btn" onclick="confirmImport()">Импортировать</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if user %}
+<style>
+/* Экспорт — насыщенные фирменные цвета */
+.btn-word { background-color:#2563eb; color:white; }
+.btn-word:hover { background-color:#1d4ed8; }
+.btn-excel { background-color:#16a34a; color:white; }
+.btn-excel:hover { background-color:#15803d; }
+.btn-pdf { background-color:#dc2626; color:white; }
+.btn-pdf:hover { background-color:#b91c1c; }
+
+/* Импорт — мягкие (приглушённые) оттенки по форматам */
+.btn-import-word {
+  background-color:#e0e7ff; color:#3730a3; border:1px solid #c7d2fe;
+}
+.btn-import-word:hover { background-color:#c7d2fe; }
+.btn-import-excel {
+  background-color:#dcfce7; color:#166534; border:1px solid #bbf7d0;
+}
+.btn-import-excel:hover { background-color:#bbf7d0; }
+
+/* Простая модалка */
+.modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.35);
+  display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50;
+}
+.modal-box {
+  background: #fff; width: 100%; max-width: 440px; border-radius: 16px;
+  padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.12);
+}
+  .btn-danger {
+  background-color:#fee2e2;
+  color:#991b1b;
+  border:1px solid #fecaca;
+}
+.btn-danger:hover {
+  background-color:#fecaca;
+}
+
+</style>
+
+<script>
+const fmt = n => new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(n||0);
+
+function dl(url, name){
+  const a=document.createElement('a');
+  a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+}
+function downloadWord(id){ dl('/api/report/'+id, 'report_'+id+'.docx'); }
+function downloadExcel(id){ dl('/api/report/excel/'+id, 'report_'+id+'.xlsx'); }
+function downloadPDF(id){ dl('/api/report/pdf/'+id, 'report_'+id+'.pdf'); }
+
+/* ===== Импорт с выбором названия ===== */
+let importState = { type: null, file: null };
+
+function triggerImport(type){
+  importState.type = type;
+  (type==='word' ? importWord : importExcel).click();
+}
+
+document.getElementById('importWord').addEventListener('change', (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  importState.file = f;
+  openImportModal(f);
+  e.target.value = ''; // сбрасываем выбор
+});
+document.getElementById('importExcel').addEventListener('change', (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  importState.file = f;
+  openImportModal(f);
+  e.target.value = '';
+});
+
+function openImportModal(file){
+  const base = (file.name || '').replace(/\.[^.]+$/,'').trim();
+  document.getElementById('importTitle').value = base || 'Импортированный расчёт';
+  document.getElementById('importFileInfo').textContent = `Файл: ${file.name}`;
+  document.getElementById('importModal').style.display = 'flex';
+}
+function closeImportModal(){
+  importState = { type: null, file: null };
+  document.getElementById('importModal').style.display = 'none';
+}
+async function confirmImport(){
+  const f = importState.file, t = importState.type;
+  if(!f || !t){ closeImportModal(); return; }
+  const title = (document.getElementById('importTitle').value || '').trim() || 'Импортированный расчёт';
+
+  const fd = new FormData();
+  fd.append('file', f);
+  fd.append('title', title); // если бэкенд примет — отлично; если нет — не мешает
+
+  const url = t==='word' ? `/api/import/word?title=${encodeURIComponent(title)}`
+                         : `/api/import/excel?title=${encodeURIComponent(title)}`;
+
+  const r = await fetch(url, { method:'POST', body: fd });
+  if(!r.ok){ alert('Ошибка импорта: '+await r.text()); closeImportModal(); return; }
+  closeImportModal();
+  alert('Импортировано ✅');
+  location.reload();
+}
+
+/* ===== Список сохранённых ===== */
+async function loadSaved(){
+  const r = await fetch('/api/calc/list'); if(!r.ok){ return; }
+  const list = await r.json();
+  const box = document.getElementById('saved'); box.innerHTML='';
+  document.getElementById('empty').style.display = list.length ? 'none' : '';
+  list.forEach(x=>{
+    const div=document.createElement('div'); div.className='card';
+    div.innerHTML = `
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <b>${x.title}</b>
+        <div class="muted" style="font-size:12px">
+          Итог: ${fmt(x.final_amount)} · Доход: ${fmt(x.profit)}
+        </div>
+      </div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <a class="btn ghost" href="/calc"
+           onclick="sessionStorage.setItem('openCalc', '${x.id}')">Открыть</a>
+        <a class="btn btn-word" href="javascript:void(0)"
+           onclick="downloadWord(${x.id})">Word</a>
+        <a class="btn btn-excel" href="javascript:void(0)"
+           onclick="downloadExcel(${x.id})">Excel</a>
+        <a class="btn btn-pdf" href="javascript:void(0)"
+           onclick="downloadPDF(${x.id})">PDF</a>
+        <button class="btn btn-danger"
+           onclick="deleteCalc(${x.id}, '${x.title.replace(/'/g, "\\'")}')">
+           Удалить
+        </button>
+      </div>
+    </div>`;
+    box.appendChild(div);
+  });
+}
+loadSaved();
+async function deleteCalc(id, title){
+  if(!confirm(`Удалить расчёт «${title}»?\nДействие необратимо.`)) return;
+
+  const r = await fetch(`/api/calc/${id}`, {
+    method: 'DELETE'
+  });
+
+  if(!r.ok){
+    alert('Ошибка удаления: ' + await r.text());
+    return;
+  }
+
+  // перерисовываем список без перезагрузки страницы
+  loadSaved();
+}
+
+</script>
+{% endif %}
+{% endblock %}

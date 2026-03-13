@@ -1,0 +1,31 @@
+:root{--bg:#f7f8fb;--card:#fff;--border:#e5e7eb;--ink:#0f172a;--muted:#6b7280;--brand:#111827}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+a{text-decoration:none;color:inherit}
+.container{max-width:1100px;margin:0 auto;padding:24px}
+.nav{background:#eef1f6;border-bottom:1px solid var(--border)}
+.row{display:flex;align-items:center;gap:12px;justify-content:space-between}
+.brand{font-weight:700}
+.btn{background:var(--brand);color:#fff;border:none;padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:#111827}
+.btn.secondary{background:#e5e7eb;color:#111827}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+.grid2{display:grid;grid-template-columns:320px 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font:inherit}
+.label{font-size:12px;color:var(--muted);margin:6px 0;display:block}
+.table{width:100%;border-collapse:collapse}
+.table th,.table td, table th, table td{padding:10px;border-bottom:1px solid #f0f2f7;text-align:left}
+.muted{color:var(--muted)}
+.tabs{display:flex;gap:8px;margin-bottom:10px}
+.tab{padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:#fff;cursor:pointer}
+.tab.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+.badge{padding:4px 8px;border-radius:8px;background:#eef2ff}
+.hero{text-align:center; padding:60px 20px;}
+.hero h1{font-size:36px; margin-bottom:16px;}
+.hero p{max-width:650px; margin:0 auto 20px auto; }
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;padding:16px}
+.modal .box{background:#fff;border-radius:12px;padding:18px;width:420px;max-width:95vw;position:relative}
+.close{position:absolute;right:14px;top:10px;cursor:pointer;color:#64748b}
+.stack{display:flex;flex-direction:column;gap:10px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}.grid3{grid-template-columns:1fr}}

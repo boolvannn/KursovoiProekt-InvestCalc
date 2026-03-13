@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+{% block title %}Акции — ИнвестКалькулятор{% endblock %}
+
+{% block head %}
+<style>
+  .stocks-page-header { margin: 8px 0 20px; }
+  .stocks-page-header h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 4px; }
+  .update-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:8px; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:20px; }
+  @media(max-width:900px){ .grid4{ grid-template-columns:repeat(2,1fr); } }
+  @media(max-width:500px){ .grid4{ grid-template-columns:1fr; } }
+  .index-card .idx-label { font-size:.8rem; color:var(--muted); margin-bottom:8px; }
+  .index-card .idx-value { font-size:1.5rem; font-weight:700; margin-bottom:6px; line-height:1; }
+  .index-card .idx-sub   { font-size:.8rem; min-height:1.2em; }
+  .up   { color:#22c55e; }
+  .down { color:#ef4444; }
+  .chart-wrap { position:relative; height:270px; margin-top:12px; }
+  .stocks-table { width:100%; border-collapse:collapse; font-size:.875rem; }
+  .stocks-table th {
+    text-align:left; padding:10px 12px; border-bottom:1px solid var(--border);
+    color:var(--muted); font-weight:600; font-size:.78rem; white-space:nowrap;
+  }
+  .stocks-table td { padding:11px 12px; border-bottom:1px solid #f0f2f7; vertical-align:middle; }
+  .stocks-table tr:last-child td { border-bottom:none; }
+  .stocks-table tr:hover td { background:var(--bg); }
+  .s-ticker  { font-weight:700; }
+  .s-company { font-weight:500; }
+  .s-change  { font-weight:600; }
+  .sector-badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:.75rem; background:#f3f4f6; color:var(--muted); }
+  .btn.refresh-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; font-size:.85rem; }
+  .btn.refresh-btn:disabled { opacity:.6; cursor:default; }
+  .spin { display:inline-block; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .section-title    { font-size:1rem; font-weight:600; margin:0 0 3px; }
+  .section-subtitle { font-size:.82rem; color:var(--muted); margin:0 0 16px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="stocks-page-header">
+  <h1>Российский фондовый рынок</h1>
+  <p class="muted">Актуальные котировки и динамика ведущих российских компаний</p>
+</div>
+
+<div class="update-row">
+  <span class="muted" style="font-size:.85rem">Обновлено: <span id="updateTime">—</span></span>
+  <button class="btn refresh-btn" id="refreshBtn" onclick="loadAll()">
+    <span id="refreshIcon">↻</span>
+    Обновить
+  </button>
+</div>
+
+<div class="grid4">
+  <div class="card index-card">
+    <div class="idx-label">Индекс МосБиржи</div>
+    <div class="idx-value" id="imoex">—</div>
+    <div class="idx-sub" id="imoex-ch"></div>
+  </div>
+  <div class="card index-card">
+    <div class="idx-label">RTS Индекс</div>
+    <div class="idx-value" id="rtsi">—</div>
+    <div class="idx-sub" id="rtsi-ch"></div>
+  </div>
+  <div class="card index-card">
+    <div class="idx-label">Объём торгов</div>
+    <div class="idx-value" id="vol-val">—</div>
+    <div class="idx-sub">За сегодня</div>
+  </div>
+  <div class="card index-card">
+    <div class="idx-label">Курс USD/RUB</div>
+    <div class="idx-value" id="usdrub">—</div>
+    <div class="idx-sub" id="usdrub-ch"></div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:20px;padding:20px 24px">
+  <p class="section-title">Динамика цен (30 дней)</p>
+  <p class="section-subtitle">График изменения стоимости ключевых акций</p>
+  <div class="chart-wrap"><canvas id="priceChart"></canvas></div>
+</div>
+
+<div class="card" style="padding:20px 24px;margin-bottom:32px">
+  <p class="section-title">Котировки акций</p>
+  <p class="section-subtitle">Актуальные данные по российским голубым фишкам</p>
+  <table class="stocks-table">
+    <thead>
+      <tr>
+        <th>Тикер</th><th>Название</th><th>Сектор</th>
+        <th style="text-align:right">Цена (₽)</th>
+        <th style="text-align:right">Изменение</th>
+        <th style="text-align:right">Объём</th>
+        <th style="text-align:right">Капитализация</th>
+      </tr>
+    </thead>
+    <tbody id="stocksBody">
+      <tr><td colspan="7" style="text-align:center;padding:36px;color:var(--muted)">Загрузка…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TICKERS = [
+  { id:"GAZP", name:"Газпром",   sector:"Энергетика",  cap:"52 млрд ₽"  },
+  { id:"SBER", name:"Сбербанк",  sector:"Финансы",     cap:"199 млрд ₽" },
+  { id:"LKOH", name:"Лукойл",    sector:"Энергетика",  cap:"3 трлн ₽"   },
+  { id:"YNDX", name:"Яндекс",    sector:"Технологии",  cap:"2.6 трлн ₽" },
+  { id:"ROSN", name:"Роснефть",  sector:"Энергетика",  cap:"323 млрд ₽" },
+  { id:"GMKN", name:"Норникель", sector:"Металлургия", cap:"5.1 трлн ₽" },
+  { id:"NVTK", name:"Новатэк",   sector:"Энергетика",  cap:"227 млрд ₽" },
+  { id:"VTBR", name:"ВТБ",       sector:"Финансы",     cap:"4.9 млн ₽"  },
+  { id:"MGNT", name:"Магнит",    sector:"Ритейл",      cap:"1.3 трлн ₽" },
+  { id:"AFLT", name:"Аэрофлот",  sector:"Транспорт",   cap:"5.4 трлн ₽" },
+];
+const CHART_TICKERS = ["GAZP","SBER","LKOH","YNDX"];
+const CHART_LABELS  = ["Газпром","Сбербанк","Лукойл","Яндекс"];
+const CHART_COLORS  = ["#6366f1","#22c55e","#f59e0b","#ef4444"];
+let priceChart = null;
+
+async function moex(path, params = {}) {
+  const qs = new URLSearchParams({ ...params, "iss.meta": "off" }).toString();
+  const r  = await fetch(`/api/moex/${path}?${qs}`);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+// Конвертирует массив columns + data в массив объектов
+function parseBlock(data, block) {
+  if (!data[block]) return [];
+  const cols = data[block].columns;
+  return data[block].data.map(row => {
+    const o = {};
+    cols.forEach((c, i) => o[c] = row[i]);
+    return o;
+  });
+}
+
+// ── Индексы ──
+async function loadIndices() {
+  try {
+    const data = await moex(
+      "engines/stock/markets/index/boards/SNDX/securities",
+      { securities: "IMOEX,RTSI" }
+    );
+    const rows = parseBlock(data, "marketdata");
+    const get  = id => rows.find(r => r.SECID === id);
+    const imoex = get("IMOEX"), rtsi = get("RTSI");
+
+    if (imoex) {
+      // CURRENTVALUE — основное поле для индексов
+      const val = imoex.CURRENTVALUE ?? imoex.LASTVALUE ?? imoex.OPEN;
+      setText("imoex", numFmt(val));
+      setChangePct("imoex-ch", imoex.CURRENTVALUE, imoex.PREVVALUE);
+    }
+    if (rtsi) {
+      const val = rtsi.CURRENTVALUE ?? rtsi.LASTVALUE ?? rtsi.OPEN;
+      setText("rtsi", numFmt(val));
+      setChangePct("rtsi-ch", rtsi.CURRENTVALUE, rtsi.PREVVALUE);
+    }
+    const vol = rows.reduce((s, r) => s + (r.VALTODAY || 0), 0);
+    setText("vol-val", fmtBig(vol, "₽"));
+  } catch(e) { console.warn("indices:", e); }
+
+  // USD/RUB
+  try {
+    const fx = await moex("engines/currency/markets/selt/boards/CETS/securities/USD000UTSTOM");
+    const md  = parseBlock(fx, "marketdata");
+    if (md.length) {
+      const d    = md[0];
+      // Приоритет полей: LAST → MARKETPRICE → WAPRICE → OPEN
+      const last = d.LAST || d.MARKETPRICE || d.WAPRICE || d.OPEN || 0;
+      // Вчерашняя цена: PREVPRICE → LCLOSEPRICE → OPEN
+      const prev = d.PREVPRICE || d.LCLOSEPRICE || d.OPEN || 0;
+      setText("usdrub", numFmt(last, 2));
+      setChangePct("usdrub-ch", last, prev);
+    }
+  } catch(e) { console.warn("fx:", e); }
+}
+
+// ── Таблица акций ──
+async function loadStocks() {
+  const ids = TICKERS.map(t => t.id).join(",");
+  try {
+    const data = await moex(
+      "engines/stock/markets/shares/boards/TQBR/securities",
+      { securities: ids }
+    );
+    const md  = parseBlock(data, "marketdata");
+    const sec = parseBlock(data, "securities");
+    const mdMap  = Object.fromEntries(md.map(r  => [r.SECID, r]));
+    const secMap = Object.fromEntries(sec.map(r => [r.SECID, r]));
+
+    document.getElementById("stocksBody").innerHTML = TICKERS.map(t => {
+      const m = mdMap[t.id]  || {};
+      const s = secMap[t.id] || {};
+
+      // Цена: LAST → MARKETPRICE → WAPRICE → PREVPRICE (из securities)
+      const price = m.LAST || m.MARKETPRICE || m.WAPRICE || s.PREVPRICE || 0;
+      // Вчерашняя: PREVPRICE из securities — самое надёжное
+      const prev  = s.PREVPRICE || s.PREVLEGALCLOSEPRICE || m.LCLOSEPRICE || 0;
+      const chPct = (price && prev) ? (price - prev) / prev * 100 : 0;
+      const up    = chPct >= 0;
+      const chStr = price ? `${up ? "↗ +" : "↘ "}${Math.abs(chPct).toFixed(2)}%` : "—";
+      const vol   = m.VOLTODAY || 0;
+
+      // Капитализация из API если есть
+      const capRaw = m.ISSUECAPITALIZATION;
+      const capStr = capRaw ? fmtBig(capRaw, "₽") : t.cap;
+
+      return `<tr>
+        <td><span class="s-ticker">${t.id}</span></td>
+        <td class="s-company">${t.name}</td>
+        <td><span class="sector-badge">${t.sector}</span></td>
+        <td style="text-align:right">${price ? numFmt(price, 2) : "—"}</td>
+        <td style="text-align:right" class="s-change ${up ? "up" : "down"}">${chStr}</td>
+        <td style="text-align:right" class="muted">${vol ? fmtCount(vol) : "—"}</td>
+        <td style="text-align:right">${capStr}</td>
+      </tr>`;
+    }).join("");
+
+  } catch(e) {
+    console.error("stocks:", e);
+    document.getElementById("stocksBody").innerHTML =
+      `<tr><td colspan="7" style="text-align:center;padding:36px;color:var(--muted)">
+        Ошибка загрузки данных
+      </td></tr>`;
+  }
+}
+
+// ── График 30 дней ──
+async function loadChart() {
+  const now   = new Date();
+  const from  = new Date(now - 30 * 86400000);
+  const fromS = from.toISOString().slice(0, 10);
+  const toS   = now.toISOString().slice(0, 10);
+  const datasets = [];
+  let labels = [];
+
+  for (let i = 0; i < CHART_TICKERS.length; i++) {
+    const tid = CHART_TICKERS[i];
+    try {
+      const data = await moex(
+        `engines/stock/markets/shares/boards/TQBR/securities/${tid}/candles`,
+        { from: fromS, till: toS, interval: 24 }
+      );
+      const rows = parseBlock(data, "candles");
+      if (!rows.length) continue;
+      if (i === 0) labels = rows.map(r => r.begin.slice(5, 10));
+      datasets.push({
+        label: CHART_LABELS[i],
+        data: rows.map(r => r.close),
+        borderColor: CHART_COLORS[i],
+        backgroundColor: CHART_COLORS[i] + "15",
+        tension: 0.3,
+        pointRadius: 2,
+        fill: false,
+      });
+    } catch(e) { console.warn("chart", tid, e); }
+  }
+
+  if (!datasets.length) return;
+  if (priceChart) priceChart.destroy();
+
+  priceChart = new Chart(
+    document.getElementById("priceChart").getContext("2d"),
+    {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 12 }, color: "#6b7280" } }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 11 }, color: "#6b7280" } },
+          y: { grid: { color: "#f0f2f7" }, ticks: { font: { size: 11 }, color: "#6b7280" } }
+        }
+      }
+    }
+  );
+}
+
+// ── Утилиты ──
+function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+
+function numFmt(n, dec = 2) {
+  if (n == null || n === 0) return "—";
+  return Number(n).toLocaleString("ru-RU", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+function fmtBig(n, unit = "") {
+  if (!n) return "—";
+  const u = unit ? " " + unit : "";
+  if (n >= 1e12) return (n / 1e12).toFixed(1) + " трлн" + u;
+  if (n >= 1e9)  return (n / 1e9).toFixed(1)  + " млрд" + u;
+  if (n >= 1e6)  return (n / 1e6).toFixed(1)  + " млн"  + u;
+  return n + u;
+}
+
+function fmtCount(n) {
+  if (!n) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + " млн";
+  if (n >= 1e3) return Math.round(n / 1e3)   + " тыс";
+  return String(n);
+}
+
+function setChangePct(id, last, prev) {
+  const el = document.getElementById(id);
+  if (!el || !last || !prev) return;
+  const pct = (last - prev) / prev * 100;
+  const up  = pct >= 0;
+  el.innerHTML = `<span class="${up ? "up" : "down"}">${up ? "↗ +" : "↘ "}${Math.abs(pct).toFixed(2)}%</span>`;
+}
+
+let isLoading = false;
+function setLoading(on) {
+  isLoading = on;
+  document.getElementById("refreshBtn").disabled = on;
+  document.getElementById("refreshIcon").className = on ? "spin" : "";
+}
+
+function updateTimestamp() {
+  setText("updateTime", new Date().toLocaleTimeString("ru-RU", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  }));
+}
+
+async function loadAll() {
+  if (isLoading) return;
+  setLoading(true);
+  await Promise.all([loadIndices(), loadStocks(), loadChart()]);
+  updateTimestamp();
+  setLoading(false);
+}
+
+loadAll();
+setInterval(loadAll, 60000);
+</script>
+{% endblock %}
