@@ -19,6 +19,25 @@ class User(Base):
         cascade="all,delete",
         passive_deletes=True,
     )
+    sessions = relationship(
+        "UserSession",
+        back_populates="user",
+        cascade="all,delete",
+        passive_deletes=True,
+    )
+
+class RiskLevel(Base):
+    __tablename__ = "risk_levels"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(50), nullable=False, unique=True)
+    expected_return = Column(Float, nullable=True)
+    description = Column(String(255), nullable=True)
+
+    calculations = relationship(
+        "Calculation",
+        back_populates="risk_level"
+    )
 
 class Calculation(Base):
     __tablename__ = "calculations"
@@ -38,6 +57,9 @@ class Calculation(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="calculations")
+
+    risk_level_id = Column(Integer, ForeignKey("risk_levels.id"), nullable=True)
+    risk_level = relationship("RiskLevel", back_populates="calculations")
 
     years_rows = relationship(
         "CalculationYear",
@@ -62,4 +84,25 @@ class CalculationYear(Base):
     __table_args__ = (
         UniqueConstraint("calculation_id", "year", name="uq_calc_year"),
         Index("ix_calc_year_calcid_year", "calculation_id", "year"),
+    )
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    token = Column(String(512), nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    user = relationship(
+        "User",
+        back_populates="sessions"
     )

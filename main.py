@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import List
 from io import BytesIO
 import httpx
+from db import SessionLocal
 
 from fastapi import UploadFile, File
 from fastapi import FastAPI, Depends, HTTPException, Request
@@ -17,7 +18,7 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError
 
 from db import Base, engine, get_db
-from models import User, Calculation, CalculationYear
+from models import User, Calculation, CalculationYear, RiskLevel
 import schemas
 
 # ---------- DOCX / Charts ----------
@@ -61,6 +62,20 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 
 Base.metadata.create_all(bind=engine)
 
+def seed_risk_levels():
+    db = SessionLocal()
+    try:
+        if db.query(RiskLevel).count() == 0:
+            db.add_all([
+                RiskLevel(name="Низкий риск", expected_return=5.0, description="Минимальный риск, 3–7% годовых"),
+                RiskLevel(name="Средний риск", expected_return=9.5, description="Умеренный риск, 7–12% годовых"),
+                RiskLevel(name="Высокий риск", expected_return=15.0, description="Высокий риск, от 12% годовых"),
+            ])
+            db.commit()
+    finally:
+        db.close()
+
+seed_risk_levels()
 SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_change_me")
 ALGO = "HS256"
 pwd = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
@@ -720,12 +735,18 @@ def stocks_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("stocks.html", {"request": request, "user": current_user(request, db)})
 
 
-MOEX_BASE = "https://www.moex.com/"
+MOEX_BASE = "https://www.moex.com/iss"
+
 
 @app.get("/api/moex/{path:path}")
 async def moex_proxy(path: str, request: Request):
+    """Проксирует любой запрос к iss.moex.com через бэкенд."""
     params = dict(request.query_params)
     url = f"{MOEX_BASE}/{path}.json"
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
         r = await client.get(url, params=params)
-    return Response(content=r.content, media_type="application/json")
+    return Response(
+        content=r.content,
+        media_type="application/json",
+        headers={"Cache-Control": "no-cache"},
+    )
