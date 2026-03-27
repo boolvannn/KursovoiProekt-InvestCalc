@@ -1,4 +1,5 @@
 import os
+import secrets
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -15,10 +16,10 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
 from passlib.context import CryptContext
-from jose import jwt, JWTError
+# from jose import jwt, JWTError
 
 from db import Base, engine, get_db
-from models import User, Calculation, CalculationYear, RiskLevel
+from models import User, Calculation, CalculationYear, RiskLevel, UserSession
 import schemas
 
 # ---------- DOCX / Charts ----------
@@ -76,28 +77,66 @@ def seed_risk_levels():
         db.close()
 
 seed_risk_levels()
-SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_change_me")
-ALGO = "HS256"
+# SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_change_me")
+# ALGO = "HS256"
 pwd = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 # =================== helpers ===================
 
-def token_for(user_id: int) -> str:
-    return jwt.encode({"sub": str(user_id), "exp": datetime.utcnow() + timedelta(days=7)}, SECRET_KEY, algorithm=ALGO)
+# def token_for(user_id: int) -> str:
+#     return jwt.encode({"sub": str(user_id), "exp": datetime.utcnow() + timedelta(days=7)}, SECRET_KEY, algorithm=ALGO)
 
-def current_user(request: Request, db: Session) -> User | None:
-    tok = request.cookies.get("access_token")
-    if not tok:
+def get_current_user(request: Request, db: Session = Depends(get_db)):
+    token = request.cookies.get("session_token")
+
+    if not token:
         return None
-    try:
-        uid = int(jwt.decode(tok, SECRET_KEY, algorithms=[ALGO]).get("sub"))
-    except JWTError:
+
+    session = db.query(UserSession).filter(
+        UserSession.token == token
+    ).first()
+
+    if not session:
         return None
-    return db.query(User).filter_by(id=uid).first()
+
+    if session.expires_at < datetime.utcnow():
+        db.delete(session)
+        db.commit()
+        return None
+
+    return session.user
+
+def require_user(user: User = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(401, "Не авторизован")
+    return user
+# def current_user(request: Request, db: Session) -> User | None:
+#     tok = request.cookies.get("access_token")
+#     if not tok:
+#         return None
+#     try:
+#         uid = int(jwt.decode(tok, SECRET_KEY, algorithms=[ALGO]).get("sub"))
+#     except JWTError:
+#         return None
+#     return db.query(User).filter_by(id=uid).first()
+
+def create_session(db: Session, user_id: int):
+    token = secrets.token_hex(32)
+
+    session = UserSession(
+        user_id=user_id,
+        token=token,
+        expires_at=datetime.utcnow() + timedelta(days=7)
+    )
+
+    db.add(session)
+    db.commit()
+
+    return token
 
 def require_user(request: Request, db: Session = Depends(get_db)) -> User:
-    u = current_user(request, db)
+    u = get_current_user(request, db)
     if not u:
         raise HTTPException(401, "Not authenticated")
     return u
@@ -124,15 +163,15 @@ def _chart_png_bytes(years: list[int], totals: list[float]) -> BytesIO:
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse("home.html", {"request": request, "user": current_user(request, db)})
+    return templates.TemplateResponse("home.html", {"request": request, "user": get_current_user(request, db)})
 
 @app.get("/calc", response_class=HTMLResponse)
 def calc_page(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse("calc.html", {"request": request, "user": current_user(request, db)})
+    return templates.TemplateResponse("calc.html", {"request": request, "user": get_current_user(request, db)})
 
 @app.get("/profile", response_class=HTMLResponse)
 def profile_page(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse("profile.html", {"request": request, "user": current_user(request, db)})
+    return templates.TemplateResponse("profile.html", {"request": request, "user": get_current_user(request, db)})
 
 
 # =================== auth api ===================
@@ -159,22 +198,36 @@ async def register(request: Request, db: Session = Depends(get_db)):
     return {"id": u.id, "name": u.name, "email": u.email}
 
 @app.post("/auth/login")
-async def login(request: Request, db: Session = Depends(get_db)):
-    ct = request.headers.get("content-type", "")
-    try:
-        data = await (request.json() if "application/json" in ct else (await request.form()))
-        data = dict(data)
-    except Exception:
-        data = {}
+async def login(request: Request, response: Response, db: Session = Depends(get_db)):
+    data = await request.json()
 
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
+
     if not (email and password):
         raise HTTPException(422, "email и password обязательны")
 
-    u = db.query(User).filter_by(email=email).first()
-    if not u or not pwd.verify(password, u.password_hash):
+    user = db.query(User).filter_by(email=email).first()
+
+    if not user or not pwd.verify(password, user.password_hash):
         raise HTTPException(401, "Неверный email или пароль")
+
+    token = create_session(db, user.id)
+
+    response = JSONResponse({
+        "ok": True,
+        "user": {"id": user.id, "name": user.name, "email": user.email}
+    })
+
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=7 * 24 * 3600
+    )
+
+    return response
 
     token = token_for(u.id)
     if "application/json" in ct:
@@ -185,9 +238,18 @@ async def login(request: Request, db: Session = Depends(get_db)):
     return resp
 
 @app.post("/auth/logout")
-def logout():
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    token = request.cookies.get("session_token")
+
+    if token:
+        db.query(UserSession).filter(
+            UserSession.token == token
+        ).delete()
+        db.commit()
+
     resp = RedirectResponse(url="/", status_code=302)
-    resp.delete_cookie("access_token")
+    resp.delete_cookie("session_token")
+
     return resp
 
 
@@ -732,7 +794,13 @@ def api_delete_calc(
 
 @app.get("/stocks", response_class=HTMLResponse)
 def stocks_page(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse("stocks.html", {"request": request, "user": current_user(request, db)})
+    return templates.TemplateResponse(
+        "stocks.html",
+        {
+            "request": request,
+            "user": get_current_user(request, db)
+        }
+    )
 
 
 MOEX_BASE = "https://www.moex.com/iss"
@@ -750,3 +818,7 @@ async def moex_proxy(path: str, request: Request):
         media_type="application/json",
         headers={"Cache-Control": "no-cache"},
     )
+
+@app.get("/api/risk-levels")
+def get_risk_levels(db: Session = Depends(get_db)):
+    return db.query(RiskLevel).order_by(RiskLevel.id).all()

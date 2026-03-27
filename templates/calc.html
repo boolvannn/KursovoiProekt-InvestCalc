@@ -7,38 +7,54 @@
 
 <div class="grid2">
   <!-- Левый столбец -->
-  <div class="card">
-    <label class="label">Начальная сумма (₽)</label>
-    <input class="input" id="i0" type="number" value="100000" min="0">
+  <div>
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin:0 0 16px">Параметры расчёта</h3>
 
-    <label class="label">Ежемесячный взнос (₽)</label>
-    <input class="input" id="m0" type="number" value="10000" min="0">
+      <label class="label">Начальная сумма (₽)</label>
+      <input class="input" id="i0" type="number" value="100000" min="0">
 
-    <label class="label">Годовая доходность (%)</label>
-    <input class="input" id="r0" type="number" value="7" step="0.1">
+      <label class="label">Ежемесячный взнос (₽)</label>
+      <input class="input" id="m0" type="number" value="10000" min="0">
 
-    <label class="label">Период (лет)</label>
-    <input class="input" id="y0" type="number" value="10" min="1" max="60">
+      <label class="label">Годовая доходность (%)</label>
+      <input class="input" id="r0" type="number" value="7" step="0.1" oninput="updateRiskBadge()">
+      <div id="riskBadge" style="margin:6px 0 10px"></div>
 
-    <div class="row" style="gap:8px;margin-top:12px;justify-content:flex-start;flex-wrap:wrap">
-      <button class="btn" onclick="calc()">Рассчитать</button>
-      {% if user %}
-        <button class="btn secondary" onclick="openModal('saveModal')">Сохранить</button>
-        <button class="btn btn-word" onclick="downloadReport()">Word (.docx)</button>
-        <button class="btn btn-excel" onclick="downloadExcel()">Excel (.xlsx)</button>
-        <button class="btn btn-pdf" onclick="downloadPDF()">PDF</button>
-      {% else %}
-        <button class="btn secondary" onclick="openModal('authModal');switchAuth('login')">Сохранить</button>
-        <button class="btn btn-word" onclick="openModal('authModal');switchAuth('login')">Word (.docx)</button>
-        <button class="btn btn-excel" onclick="openModal('authModal');switchAuth('login')">Excel (.xlsx)</button>
-        <button class="btn btn-pdf" onclick="openModal('authModal');switchAuth('login')">PDF</button>
-      {% endif %}
+      <label class="label">Период (лет)</label>
+      <input class="input" id="y0" type="number" value="10" min="1" max="60">
+
+      <div style="margin-top:12px">
+        <button class="btn" style="width:100%;margin-bottom:8px" onclick="calc()">Рассчитать</button>
+      </div>
     </div>
 
-    <div class="card" style="margin-top:12px">
-      <div class="row"><span>Итоговая сумма</span><b id="resFinal">—</b></div>
-      <div class="row"><span>Общие взносы</span><b id="resContrib">—</b></div>
-      <div class="row"><span>Доходность</span><b id="resProfit">—</b></div>
+    <div class="card">
+      <h3 style="margin:0 0 12px">Результат</h3>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f2f7">
+        <span class="muted">Итоговая сумма:</span><b id="resFinal">—</b>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f2f7">
+        <span class="muted">Общие взносы:</span><b id="resContrib">—</b>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;margin-bottom:16px">
+        <span class="muted">Доходность:</span>
+        <b id="resProfit" style="color:#16a34a">—</b>
+      </div>
+
+      <div class="stack">
+        {% if user %}
+          <button class="btn btn-word" onclick="downloadReport()">Word (.docx)</button>
+          <button class="btn btn-excel" onclick="downloadExcel()">Excel (.xlsx)</button>
+          <button class="btn btn-pdf" onclick="downloadPDF()">PDF</button>
+          <button class="btn" onclick="openModal('saveModal')">Сохранить</button>
+        {% else %}
+          <button class="btn btn-word" onclick="openModal('authModal');switchAuth('login')">Word (.docx)</button>
+          <button class="btn btn-excel" onclick="openModal('authModal');switchAuth('login')">Excel (.xlsx)</button>
+          <button class="btn btn-pdf" onclick="openModal('authModal');switchAuth('login')">PDF</button>
+          <button class="btn" onclick="openModal('authModal');switchAuth('login')">Войти для сохранения</button>
+        {% endif %}
+      </div>
     </div>
   </div>
 
@@ -217,5 +233,42 @@ function downloadPDF(){
   a.download='report_'+lastSavedId+'.pdf';
   document.body.appendChild(a); a.click(); a.remove();
 }
+  // Уровни риска из БД
+let riskLevels = [];
+
+async function loadRiskLevels() {
+  const r = await fetch('/api/risk-levels');
+  if (r.ok) riskLevels = await r.json();
+  updateRiskBadge();
+}
+
+function updateRiskBadge() {
+  const rate = parseFloat(document.getElementById('r0').value) || 0;
+  const badge = document.getElementById('riskBadge');
+  if (!riskLevels.length) { badge.innerHTML = ''; return; }
+
+  // Определяем уровень по expected_return (ближайший снизу)
+  let level = riskLevels[0];
+  for (const l of riskLevels) {
+    if (rate >= (l.expected_return || 0)) level = l;
+  }
+
+  // Цвет по имени
+  const colors = {
+    'Низкий риск':  { bg: '#dcfce7', color: '#166534' },
+    'Средний риск': { bg: '#fef9c3', color: '#854d0e' },
+    'Высокий риск': { bg: '#fee2e2', color: '#991b1b' },
+  };
+  const c = colors[level.name] || { bg: '#f3f4f6', color: '#374151' };
+  const emoji = level.name.includes('Низкий') ? '🟢' : level.name.includes('Средний') ? '🟡' : '🔴';
+
+  badge.innerHTML = `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 12px;
+    border-radius:20px;font-size:.78rem;font-weight:600;
+    background:${c.bg};color:${c.color}">
+    ${emoji} ${level.name}
+  </span>`;
+}
+
+loadRiskLevels();
 </script>
 {% endblock %}
