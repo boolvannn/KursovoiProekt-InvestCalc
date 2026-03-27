@@ -33,3 +33,8 @@ pip install -r requirements.txt
 python -m uvicorn main:app --reload
 
 # Открыть http://127.0.0.1:8000
+
+git add .
+git commit -m ""
+git rebase --abort
+git push -u origin master --force
