@@ -2,7 +2,7 @@ import os
 import secrets
 import sys
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 from io import BytesIO
 import httpx
@@ -100,7 +100,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     if not session:
         return None
 
-    if session.expires_at < datetime.utcnow():
+    if session.expires_at < datetime.now(timezone.utc):
         db.delete(session)
         db.commit()
         return None
@@ -368,8 +368,7 @@ def api_list(u: User = Depends(require_user), db: Session = Depends(get_db)):
 
 
 # =================== reports ===================
-
-# ---- WORD (заменяет старый CSV) ----
+# ---- WORD----
 @app.get("/api/report/{calc_id}")
 def api_report_word(calc_id: int, u: User = Depends(require_user), db: Session = Depends(get_db)):
     calc = (
